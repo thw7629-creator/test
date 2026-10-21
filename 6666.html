@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>公務道路禁挖期自動查詢系統</title>
+    <style>
+        body {
+            font-family: "Helvetica Neue", Helvetica, Arial, "PingFang TC", "Microsoft JhengHei", sans-serif;
+            background-color: #f1f5f9;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background-color: #ffffff;
+            padding: 35px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+            width: 100%;
+            max-width: 500px;
+        }
+        h2 {
+            text-align: center;
+            color: #1e293b;
+            margin-bottom: 5px;
+            font-size: 24px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 22px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #334155;
+            font-size: 15px;
+        }
+        select, button {
+            width: 100%;
+            padding: 12px 16px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+            background-color: #fff;
+        }
+        select:focus {
+            border-color: #3b82f6;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        button {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 10px;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #2563eb;
+        }
+        button:disabled {
+            background-color: #cbd5e1;
+            cursor: not-allowed;
+        }
+        .result-box {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 8px;
+            display: none;
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-top: 6px solid #ef4444;
+        }
+        .info-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .info-table td {
+            padding: 10px 0;
+            border-bottom: 1px dashed #e2e8f0;
+        }
+        .info-table tr:last-child td {
+            border-bottom: none;
+        }
+        .info-table td.title {
+            font-weight: 600;
+            color: #64748b;
+            width: 35%;
+        }
+        .info-table td.value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #0f172a;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🚧 禁挖期查詢系統</h2>
+    <div id="dbStatus" class="subtitle">正在連線至試算表資料庫...</div>
+    
+    <!-- 步驟一：選擇路段 -->
+    <div class="form-group">
+        <label for="road">第一步：選擇路段</label>
+        <select id="road" onchange="updateMilestones()" disabled>
+            <option value="">-- 資料載入中 --</option>
+        </select>
+    </div>
+
+    <!-- 步驟二：選擇樁號 -->
+    <div class="form-group">
+        <label for="milestone" disabled>第二步：選擇樁號 (里程數)</label>
+        <select id="milestone" disabled>
+            <option value="">-- 請先選擇路段 --</option>
+        </select>
+    </div>
+
+    <!-- 查詢按鈕 -->
+    <button type="button" id="searchBtn" onclick="searchData()" disabled>執行資料庫查詢</button>
+
+    <!-- 步驟三：輸出查詢結果 -->
+    <div id="result" class="result-box">
+        <table class="info-table">
+            <tr>
+                <td class="title">查詢路段：</td>
+                <td id="res-road" class="value"></td>
+            </tr>
+            <tr>
+                <td class="title">查詢樁號：</td>
+                <td id="res-mile" class="value"></td>
+            </tr>
+            <tr>
+                <td class="title">驗收日期：</td>
+                <td id="res-accept" class="value"></td>
+            </tr>
+            <tr>
+                <td class="title">🚫 禁挖期限：</td>
+                <td id="res-limit" class="value" style="color: #ef4444;"></td>
+            </tr>
+            <tr>
+                <td class="title">備註：</td>
+                <td id="res-note" class="value"></td>
+            </tr>
+        </table>
+    </div>
+</div>
+
+<script>
+// 全域前端快取資料庫
+let parsedDatabase = {};
+
+// 網頁開啟時，自動去讀取同目錄下的 database.csv
+window.addEventListener('DOMContentLoaded', () => {
+    // 試算表檔案名稱，可依需求自行更改
+    const csvFileName = 'database.csv'; 
+
+    fetch(csvFileName)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('找不到試算表資料庫檔案 (database.csv)');
+            }
+            return response.text();
+        })
+        .then(csvText => {
+            parseCSVToDatabase(csvText);
+        })
+        .catch(error => {
+            document.getElementById('dbStatus').innerText = '❌ 資料庫讀取失敗，請確認檔案是否存在。';
+            document.getElementById('dbStatus').style.color = '#ef4444';
+            console.error(error);
+            alert('系統提示：無法自動讀取試算表。請確認是否已建立 database.csv 檔案，且必須透過 Local Server 環境開啟網頁。');
+        });
+});
+
+// 解析 CSV 文本並建立結構化資料庫
+function parseCSVToDatabase(text) {
+    // 處理換行符號並分割成行
+    const lines = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+    if (lines.length <= 1) {
+        alert("資料庫錯誤：試算表內沒有數據！");
+        return;
+    }
+
+    // 讀取第一行作為標題欄位
+    const headers = lines[0].split(',').map(h => h.trim());
+    
+    // 自動辨識所需欄位的索引位置
+    const roadIdx = headers.findIndex(h => h.includes('路段'));
+    const mileIdx = headers.findIndex(h => h.includes('里程數') || h.includes('樁號'));
+    const acceptIdx = headers.findIndex(h => h.includes('驗收'));
+    const limitIdx = headers.findIndex(h => h.includes('禁挖期限'));
+    const noteIdx = headers.findIndex(h => h.includes('備註'));
+
+    // 從第二行開始解析真實數據
+    for (let i = 1; i < lines.length; i++) {
+        const columns = lines[i].split(',').map(c => c.trim());
+        
+        // 確保基本樁號資料存在
+        let milestone = mileIdx !== -1 ? columns[mileIdx] : '';
+        if (!milestone) continue;
+
+        // 若無明確「路段」欄位，預設歸類為「台2線」
+        let road = (roadIdx !== -1 && columns[roadIdx]) ? columns[roadIdx] : '台2線';
+        let acceptDate = acceptIdx !== -1 ? columns[acceptIdx] : '';
+        let limitDate = limitIdx !== -1 ? columns[limitIdx] : '';
+        let note = noteIdx !== -1 ? columns[noteIdx] : '';
+
+        // 寫入二維字典結構
+        if (!parsedDatabase[road]) {
+            parsedDatabase[road] = {};
+        }
+        parsedDatabase[road][milestone] = {
+            accept: acceptDate,
+            limit: limitDate,
+            note: note
+        };
+    }
+
+    // 更新網頁控制項狀態
+    const roadSelect = document.getElementById('road');
+    roadSelect.innerHTML = '<option value="">-- 請選擇路段 --</option>';
+    
+    const roads = Object.keys(parsedDatabase);
+    roads.forEach(r => {
+        roadSelect.options.add(new Option(r, r));
+    });
+
+    roadSelect.disabled = false;
+    document.getElementById('searchBtn').disabled = false;
+    document.getElementById('dbStatus').innerText = '🟢 資料庫連線成功，數據已同步。';
+    document.getElementById('dbStatus').style.color = '#22c55e';
+}
+
+// 連動更新樁號選單
+function updateMilestones() {
+    const roadSelect = document.getElementById('road');
+    const mileSelect = document.getElementById('milestone');
+    const selectedRoad = roadSelect.value;
+
+    mileSelect.innerHTML = '';
+
+    if (!selectedRoad || !parsedDatabase[selectedRoad]) {
+        mileSelect.options.add(new Option('-- 請先選擇路段 --', ''));
+        mileSelect.disabled = true;
+        return;
+    }
+
+    mileSelect.options.add(new Option('-- 請選擇樁號 --', ''));
+    
+    const miles = Object.keys(parsedDatabase[selectedRoad]);
+    miles.forEach(mile => {
+        mileSelect.options.add(new Option(mile, mile));
+    });
+
+    mileSelect.disabled = false;
+}
+
+// 查詢數據並輸出
+function searchData() {
+    const road = document.getElementById('road').value;
+    const milestone = document.getElementById('milestone').value;
+    const resultBox = document.getElementById('result');
+
+    if (!road || !milestone) {
+        alert('請確實選擇路段與樁號！');
+        resultBox.style.display = 'none';
+        return;
+    }
+
+    const data = parsedDatabase[road][milestone];
+
+    if (data) {
+        document.getElementById('res-road').innerText = road;
+        document.getElementById('res-mile').innerText = milestone;
+        document.getElementById('res-accept').innerText = data.accept || '無數據';
+        document.getElementById('res-limit').innerText = data.limit || '無數據';
+        document.getElementById('res-note').innerText = data.note || '無';
+        
+        resultBox.style.display = 'block';
+    } else {
+        alert('找不到該樁號的禁挖資料。');
+        resultBox.style.display = 'none';
+    }
+}
+</script>
+
+</body>
+</html>
